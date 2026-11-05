@@ -10,6 +10,8 @@ import { LayerProofVellumNodeDemo } from './compositions/LayerProofVellumNodeDem
 import { PromptMultiPlatform } from './compositions/gifs/PromptMultiPlatform';
 import { AISlideStack } from './compositions/gifs/AISlideStack';
 import { LayerProofBrandKit } from './compositions/LayerProofBrandKit';
+import { LayerProofBrandKitVI } from './compositions/LayerProofBrandKitVI';
+import { LayerProofBrandKitTikTok } from './compositions/LayerProofBrandKitTikTok';
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -75,14 +77,34 @@ export const RemotionRoot: React.FC = () => {
         posterFrame={50}
       />
 
-      {/* Brand Kit Feature Video — 57s */}
+      {/* Brand Kit Feature Video — English */}
       <Composition
         id="layerproof-brand-kit"
         component={LayerProofBrandKit}
-        durationInFrames={1679}
+        durationInFrames={1719}
         fps={30}
         width={1920}
         height={1080}
+      />
+
+      {/* Brand Kit Feature Video — Vietnamese */}
+      <Composition
+        id="layerproof-brand-kit-vi"
+        component={LayerProofBrandKitVI}
+        durationInFrames={1719}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+
+      {/* Brand Kit — TikTok 9:16 (1080×1920) */}
+      <Composition
+        id="layerproof-brand-kit-tiktok"
+        component={LayerProofBrandKitTikTok}
+        durationInFrames={1719}
+        fps={30}
+        width={1080}
+        height={1920}
       />
     </>
   );

@@ -10,8 +10,10 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import { easeIO3, springReveal } from '../../../lib/animations';
+import { easeIO3 } from '../../../lib/animations';
 import { useTheme } from '../../../lib/theme';
+import { useBrandKitStrings } from './BrandKitLangContext';
+import { useVideoScale } from '../../../lib/scale';
 import { ANTON_FAMILY } from '../../../lib/loadFont';
 import { PromptInputBox } from '../../ui/PromptInputBox';
 import { Cursor } from '../../ui/Cursor';
@@ -27,8 +29,9 @@ const THEME_CLICK   = 162;
 const GEN_HOVER     = 195;
 const GEN_CLICK     = 212;
 const EDITOR_IN     = 216;   // transition immediately after Generate click
-const EXIT_START    = 350;
-const EXIT_END      = 370;
+const ZOOM_START    = 276;   // slow zoom into preview image (after posts load)
+const EXIT_START    = 370;
+const EXIT_END      = 390;
 
 // ── Camera ────────────────────────────────────────────────────────────────────
 // Scale and origin both animate:
@@ -36,7 +39,7 @@ const EXIT_END      = 370;
 // Origin X: 50% → 30% (card is left-center) → 62% (Generate is right-center)
 // Origin Y: 48% → 74% (theme grid) → 48% (Generate / prompt area)
 
-const PROMPT_TEXT = 'Launch LayerProof Brand Kit feature';
+// PROMPT_TEXT is now read from strings context inside the component
 
 // ── Theme card data ───────────────────────────────────────────────────────────
 
@@ -57,7 +60,7 @@ const LP_THEME = {
 // Theme Library — 4 generic themes
 const LIBRARY_THEMES = [
   { name: 'Minimal Dark',   bg: '#1c1c1c', accent: '#FFD600', lines: [['#FFD600','45%',8],['#888','70%',6],['#666','55%',5],['#FFD600','28%',14]] },
-  { name: 'Bold Gradient',  bg: '#6c3fc7', accent: '#f59e42', lines: [['#f59e42','50%',8],['#e8b87a','72%',6],['#d97706','58%',5],['#f59e42','32%',14]] },
+  { name: 'Bold Gradient',  bg: '#1e1040', accent: '#f59e42', lines: [['#f59e42','50%',8],['#e8b87a','72%',6],['#d97706','58%',5],['#f59e42','32%',14]] },
   { name: 'Clean Light',    bg: '#f7f7f7', accent: '#3b82f6', lines: [['#3b82f6','48%',8],['#aaa','68%',6],['#ccc','54%',5],['#3b82f6','30%',14]] },
   { name: 'Neon Accent',    bg: '#0d0d14', accent: '#a855f7', lines: [['#a855f7','52%',8],['#0ea5e9','70%',6],['#10b981','56%',5],['#a855f7','30%',14]] },
 ];
@@ -82,6 +85,21 @@ const CURSOR_KFS: CursorKeyframe[] = [
   { frame: 245, x: 0.55, y: 0.55 },
 ];
 
+// TikTok cursor — positions are fractions of the 1080×1920 canvas (NOT 1920×1080).
+// Content block (700px wide) is centred: left=190, right=890.
+// Prompt textarea centre y ≈ 1096px → 0.571; LP card centre (360, 1189) → (0.333, 0.619)
+// Generate button at ~830px from left, shifted-up prompt y ≈ 936px → (0.769, 0.488)
+const CURSOR_KFS_TIKTOK: CursorKeyframe[] = [
+  { frame: 10,  x: 0.21, y: 0.57 },   // left edge of textarea
+  { frame: 100, x: 0.62, y: 0.57 },   // typing done
+  { frame: 110, x: 0.62, y: 0.57 },
+  { frame: 132, x: 0.33, y: 0.62 },   // LP theme card
+  { frame: 162, x: 0.33, y: 0.62, click: true },
+  { frame: 188, x: 0.77, y: 0.49 },   // Generate button (prompt shifted up 160px)
+  { frame: 212, x: 0.77, y: 0.49, click: true },
+  { frame: 245, x: 0.55, y: 0.55 },
+];
+
 // ── Editor posts ──────────────────────────────────────────────────────────────
 
 const POSTS = [
@@ -90,15 +108,12 @@ const POSTS = [
   { bg: '#0d0d0d', accent: '#FF589B', image: staticFile('social-posts/post_3.png') },
 ];
 
-const WIN_W = 1540;
-const WIN_H = 860;
-const WIN_X = (1920 - WIN_W) / 2;
-const WIN_Y = (1080 - WIN_H) / 2;
+// WIN dimensions computed inside component using useVideoScale()
 
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ThemeCard({
-  bg, lines, name, description, selected, hovered, enterFrame, frame, fps, image,
+  bg, lines, name, description, selected, hovered, enterFrame, frame, fps, image, cardWidth = 240,
 }: {
   bg: string;
   lines: { color: string; w: string; h: number; radius?: number }[];
@@ -110,11 +125,13 @@ function ThemeCard({
   frame: number;
   fps: number;
   image?: string;
+  cardWidth?: number;
 }) {
   const PINK = '#FF589B';
   const op = interpolate(frame, [enterFrame, enterFrame + 18], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const s  = spring({ frame: Math.max(0, frame - enterFrame), fps, config: { stiffness: 100, damping: 22 } });
   const ty = interpolate(s, [0, 1], [18, 0]);
+  const cardH = Math.round(cardWidth * 0.5);
 
   return (
     <div style={{
@@ -122,7 +139,7 @@ function ThemeCard({
       opacity: op, transform: `translateY(${ty}px)`,
     }}>
       <div style={{
-        width: 240, height: 120,
+        width: cardWidth, height: cardH,
         borderRadius: 14,
         background: bg,
         overflow: 'hidden',
@@ -193,14 +210,14 @@ function ThemeCard({
       </div>
       <div>
         <div style={{
-          fontFamily: 'Inter, sans-serif', fontSize: 15,
+          fontFamily: 'Inter, sans-serif', fontSize: Math.round(cardWidth * 0.062),
           fontWeight: selected ? 700 : 500,
           color: selected ? PINK : 'rgba(255,255,255,0.85)',
           letterSpacing: -0.2,
         }}>{name}</div>
         {description && (
           <div style={{
-            fontFamily: 'Inter, sans-serif', fontSize: 12,
+            fontFamily: 'Inter, sans-serif', fontSize: Math.round(cardWidth * 0.047),
             fontWeight: 400,
             color: 'rgba(255,255,255,0.4)',
             letterSpacing: 0,
@@ -244,16 +261,17 @@ function PostThumb({ post, enterFrame, frame, isFirst }: {
   );
 }
 
-function PreviewPost({ previewIn, PINK, theme, imageSrc }: {
+function PreviewPost({ previewIn, PINK, theme, imageSrc, size }: {
   previewIn: number;
   PINK: string;
   theme: ReturnType<typeof useTheme>;
   imageSrc: string;
+  size: number;
 }) {
   const [imgFailed, setImgFailed] = React.useState(false);
   return (
     <div style={{
-      width: 540, height: 540, borderRadius: 20,
+      width: size, height: size, borderRadius: 20,
       background: '#080808',
       opacity: previewIn,
       transform: `scale(${interpolate(previewIn, [0, 1], [0.92, 1])})`,
@@ -298,13 +316,22 @@ function PreviewPost({ previewIn, PINK, theme, imageSrc }: {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const BrandKitExecution: React.FC = () => {
+export const BrandKitExecution: React.FC<{ tiktok?: boolean }> = ({ tiktok = false }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const theme = useTheme();
+  const s = useBrandKitStrings();
+  const { w, h, scale, py } = useVideoScale();
+  const PROMPT_TEXT = s.execPromptText;
 
   const PINK   = theme.colors.accentPink   ?? '#FF589B';
   const YELLOW = theme.colors.accentYellow ?? '#FFD600';
+
+  const WIN_W = tiktok ? w - 40 * scale : 1540 * scale;
+  // Preserve landscape 1540:860 (≈16:9) aspect ratio for TikTok editor
+  const WIN_H = tiktok ? Math.round(WIN_W * (860 / 1540)) : 860 * scale;
+  const WIN_X = (w - WIN_W) / 2;
+  const WIN_Y = (h - WIN_H) / 2;
 
   const fadeIn  = interpolate(frame, [0, 18], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const fadeOut = interpolate(frame, [EXIT_START, EXIT_END], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
@@ -318,11 +345,14 @@ export const BrandKitExecution: React.FC = () => {
   // At zoom S=2.6 → OX=22.1%, OY=103.9%
   // Generate button center (after prompt shift -62px): x=0.69*1920=1324px, y=0.64*1080=691px
   // At zoom S=1.28 → OX=136.9%, OY=113.6% (we just return to natural pan instead)
-  const ZOOM_S      = 2.6;
-  const CARD_PX     = 630;
-  const CARD_PY     = 898;
-  const CARD_CTR_OX = ((960 - ZOOM_S * CARD_PX) / (1 - ZOOM_S)) / 1920 * 100;
-  const CARD_CTR_OY = ((540 - ZOOM_S * CARD_PY) / (1 - ZOOM_S)) / 1080 * 100;
+  const ZOOM_S      = tiktok ? 1.8 : 2.6;
+  // For tiktok: LP card left-aligned in 700*scale grid centered on screen
+  // grid left = (w - 700*scale) / 2 = (1080 - 700) / 2 = 190; card center x = 190 + 150 = 340
+  // CARD_PY tiktok: py(720) (grid top) + 52 (header row) + 18 (section margin) + (150/2 + 36)(half card+label) = +175
+  const CARD_PX     = tiktok ? (w - 700 * scale) / 2 + 170 * scale : 630 * scale;
+  const CARD_PY     = tiktok ? py(580) + 175 : py(898);
+  const CARD_CTR_OX = ((w/2 - ZOOM_S * CARD_PX) / (1 - ZOOM_S)) / w * 100;
+  const CARD_CTR_OY = ((h/2 - ZOOM_S * CARD_PY) / (1 - ZOOM_S)) / h * 100;
 
   // Cursor starts moving to card after typing finishes (TYPE_END=100), small pause
   const CURSOR_TO_CARD = 110;
@@ -337,24 +367,44 @@ export const BrandKitExecution: React.FC = () => {
   // After THEME_CLICK the cursor moves toward Generate — camera follows immediately
   const toGenSpring = spring({ frame: Math.max(0, frame - THEME_CLICK), fps, config: CAM_CFG });
 
+  const BASE_SCALE  = tiktok ? 1.0 : 1.28;
+  // TikTok: zoom in 1.25× while typing, spring back to 1.0 when grid reveals
+  const TYPE_SCALE  = tiktok ? 1.25 : BASE_SCALE;
+  const gridRevealSpring = spring({ frame: Math.max(0, frame - GRID_IN), fps, config: { stiffness: 50, damping: 22 } });
+
   const camScale = (() => {
-    if (frame < CURSOR_TO_CARD) return 1.28;
-    if (frame <= THEME_CLICK) return interpolate(camSpring, [0, 1], [1.28, ZOOM_S]);
-    // Zoom out while cursor travels to Generate
-    return interpolate(toGenSpring, [0, 1], [ZOOM_S, 1.28]);
+    if (tiktok) {
+      if (frame < GRID_IN)          return TYPE_SCALE;
+      if (frame < CURSOR_TO_CARD)   return interpolate(gridRevealSpring, [0, 1], [TYPE_SCALE, 1.0]);
+      if (frame <= THEME_CLICK)     return interpolate(camSpring, [0, 1], [1.0, ZOOM_S]);
+      return interpolate(toGenSpring, [0, 1], [ZOOM_S, 1.0]);
+    }
+    if (frame < CURSOR_TO_CARD) return BASE_SCALE;
+    if (frame <= THEME_CLICK) return interpolate(camSpring, [0, 1], [BASE_SCALE, ZOOM_S]);
+    return interpolate(toGenSpring, [0, 1], [ZOOM_S, BASE_SCALE]);
   })();
 
   const camOriginX = (() => {
+    if (tiktok) {
+      if (frame < CURSOR_TO_CARD)   return 50;
+      if (frame <= THEME_CLICK)     return interpolate(camSpring, [0, 1], [50, CARD_CTR_OX]);
+      return interpolate(toGenSpring, [0, 1], [CARD_CTR_OX, 68]);
+    }
     if (frame < CURSOR_TO_CARD) return 50;
     if (frame <= THEME_CLICK) return interpolate(camSpring, [0, 1], [50, CARD_CTR_OX]);
-    // Pan right following cursor toward Generate button (x≈72%)
     return interpolate(toGenSpring, [0, 1], [CARD_CTR_OX, 68]);
   })();
 
   const camOriginY = (() => {
+    if (tiktok) {
+      // Focus on prompt area (slightly above vertical center) while typing, then pan to center
+      if (frame < GRID_IN)          return 38;
+      if (frame < CURSOR_TO_CARD)   return interpolate(gridRevealSpring, [0, 1], [38, 48]);
+      if (frame <= THEME_CLICK)     return interpolate(camSpring, [0, 1], [48, CARD_CTR_OY]);
+      return interpolate(toGenSpring, [0, 1], [CARD_CTR_OY, 59]);
+    }
     if (frame < CURSOR_TO_CARD) return 48;
     if (frame <= THEME_CLICK) return interpolate(camSpring, [0, 1], [48, CARD_CTR_OY]);
-    // Pan up following cursor toward Generate button (y≈59%)
     return interpolate(toGenSpring, [0, 1], [CARD_CTR_OY, 59]);
   })();
 
@@ -372,11 +422,11 @@ export const BrandKitExecution: React.FC = () => {
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
 
-  // Prompt box shifts up slightly as grid appears
+  // Prompt box shifts up as grid appears — more aggressively on TikTok
   const gridProgress = interpolate(frame, [GRID_IN, GRID_IN + 30], [0, 1], {
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
-  const promptShiftY = interpolate(easeIO3(gridProgress), [0, 1], [0, -62]);
+  const promptShiftY = interpolate(easeIO3(gridProgress), [0, 1], [0, tiktok ? -160 * scale : -62 * scale]);
 
   // ── Theme grid ────────────────────────────────────────────────────────────
 
@@ -400,6 +450,12 @@ export const BrandKitExecution: React.FC = () => {
   const editorOp = interpolate(frame, [EDITOR_IN, EDITOR_IN + 22], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const editorY  = interpolate(editorSpring, [0, 1], [52, 0]);
 
+  // Slow push-in zoom + pan to center the preview image (at ~68% from left)
+  const editorZoomSpring = spring({ frame: Math.max(0, frame - ZOOM_START), fps, config: { stiffness: 22, damping: 26 } });
+  const editorZoom = interpolate(editorZoomSpring, [0, 1], [1.0, 1.55]);
+  // Pan left so the preview image (pinned at 68%) reaches screen centre (50%)
+  const editorPanX = interpolate(editorZoomSpring, [0, 1], [0, -WIN_W * 0.18]);
+
   const POST_ENTER = [EDITOR_IN + 28, EDITOR_IN + 48, EDITOR_IN + 68];
   const previewIn  = interpolate(frame, [EDITOR_IN + 26, EDITOR_IN + 58], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
 
@@ -409,7 +465,7 @@ export const BrandKitExecution: React.FC = () => {
       {/* ── Camera rig (zoom + pan, prompt/grid phases only) ── */}
       {frame < EDITOR_IN + 16 && (
       <div style={{
-        position: 'absolute', top: 0, left: 0, width: 1920, height: 1080,
+        position: 'absolute', top: 0, left: 0, width: w, height: h,
         transform: `scale(${camScale})`,
         transformOrigin: `${camOriginX}% ${camOriginY}%`,
       }}>
@@ -436,7 +492,7 @@ export const BrandKitExecution: React.FC = () => {
             opacity: interpolate(frame, [0, 22], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' }),
           }}>
             <div style={{
-              width: 900,
+              width: tiktok ? 700 * scale : 900 * scale,
               transform: `translateY(${promptShiftY}px)`,
             }}>
               {/* Social Post pill */}
@@ -462,35 +518,35 @@ export const BrandKitExecution: React.FC = () => {
                   fontWeight: theme.font.weightMedium,
                   color: YELLOW,
                   letterSpacing: 0.2,
-                }}>Social Post</span>
+                }}>{s.execPillLabel}</span>
               </div>
 
               {/* Main headline */}
               <div style={{
-                fontSize: 50,
+                fontSize: tiktok ? 40 * scale : 50,
                 fontWeight: 400,
                 fontFamily: ANTON_FAMILY,
-                lineHeight: 1.05,
+                lineHeight: 1.15,
                 letterSpacing: 1,
                 textTransform: 'uppercase',
                 marginBottom: 20,
               }}>
-                <span style={{ color: '#FFFFFF' }}>WHAT </span>
-                <span style={{ color: PINK }}>POST</span>
-                <span style={{ color: '#FFFFFF' }}> WILL YOUR AUDIENCE LOVE?</span>
+                <span style={{ color: '#FFFFFF' }}>{s.execHeadlinePrefix}</span>
+                <span style={{ color: PINK }}>{s.execHeadlineAccent}</span>
+                <span style={{ color: '#FFFFFF' }}>{s.execHeadlineSuffix}</span>
               </div>
 
               {/* Subtitle */}
               <div style={{
                 fontFamily: theme.font.family,
-                fontSize: 22,
+                fontSize: tiktok ? 18 * scale : 22,
                 fontWeight: 300,
                 color: 'rgba(255,255,255,0.55)',
                 lineHeight: 1.55,
                 letterSpacing: 0.1,
                 marginBottom: 36,
               }}>
-                Tell us what to say — we'll craft posts that stop the scroll and build your brand.
+                {s.execSubtitle}
               </div>
 
               {/* Prompt box */}
@@ -509,10 +565,10 @@ export const BrandKitExecution: React.FC = () => {
           {frame >= GRID_IN && (
             <div style={{
               position: 'absolute',
-              top: 720,
+              top: tiktok ? py(580) : py(720),
               left: '50%',
               transform: `translateX(-50%) translateY(${gridY}px)`,
-              width: 900,
+              width: tiktok ? 700 * scale : 900 * scale,
               opacity: gridOp,
             }}>
               {/* Grid header */}
@@ -523,7 +579,7 @@ export const BrandKitExecution: React.FC = () => {
                 <div style={{
                   fontFamily: theme.font.family, fontSize: 22,
                   fontWeight: theme.font.weightBold, color: '#fff',
-                }}>Choose a theme</div>
+                }}>{s.execChooseTheme}</div>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 8,
                   padding: '8px 18px', borderRadius: 10,
@@ -532,7 +588,7 @@ export const BrandKitExecution: React.FC = () => {
                   fontFamily: theme.font.family, fontSize: 14, color: '#aaa',
                 }}>
                   <span style={{ fontSize: 16 }}>⊞</span>
-                  <span>View more</span>
+                  <span>{s.execViewMore}</span>
                 </div>
               </div>
 
@@ -552,6 +608,7 @@ export const BrandKitExecution: React.FC = () => {
                   frame={frame}
                   fps={fps}
                   image={staticFile('brand-kit-thumbnail.png')}
+                  cardWidth={tiktok ? 340 : 240}
                 />
               </div>
 
@@ -564,11 +621,11 @@ export const BrandKitExecution: React.FC = () => {
                   <span style={{
                     fontFamily: theme.font.family, fontSize: 15,
                     fontWeight: theme.font.weightMedium, color: '#777',
-                  }}>Theme Library</span>
+                  }}>{s.execThemeLibrary}</span>
                 </div>
 
-                <div style={{ display: 'flex', gap: 20 }}>
-                  {LIBRARY_THEMES.map((t, i) => {
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                  {LIBRARY_THEMES.slice(0, tiktok ? 2 : 4).map((t, i) => {
                     const ls = t.lines.map(([color, w, h]) => ({ color: color as string, w: w as string, h: h as number }));
                     return (
                       <ThemeCard
@@ -581,6 +638,7 @@ export const BrandKitExecution: React.FC = () => {
                         enterFrame={LIBRARY_ENTER[i]}
                         frame={frame}
                         fps={fps}
+                        cardWidth={tiktok ? 340 : 240}
                       />
                     );
                   })}
@@ -593,7 +651,7 @@ export const BrandKitExecution: React.FC = () => {
 
 
       {/* Cursor lives inside the rig so it moves with the zoom/pan */}
-      <Cursor keyframes={CURSOR_KFS} />
+      <Cursor keyframes={tiktok ? CURSOR_KFS_TIKTOK : CURSOR_KFS} containerWidth={w} containerHeight={h} size={tiktok ? 2.0 : 2.8} />
 
       </div>
       )}
@@ -608,9 +666,18 @@ export const BrandKitExecution: React.FC = () => {
           border: '1px solid rgba(255,255,255,0.10)',
           boxShadow: '0 40px 120px rgba(0,0,0,0.75), 0 0 0 1px rgba(255,255,255,0.04)',
           opacity: editorOp,
-          transform: `translateY(${editorY}px)`,
-          display: 'flex', flexDirection: 'column',
+          transform: `translateY(${editorY}px) translateX(${editorPanX}px) scale(${editorZoom})`,
+          transformOrigin: '68% 50%',
           background: '#0d0d0d',
+        }}>
+        {/* Inner wrapper: render at landscape pixel size, scale down for TikTok */}
+        <div style={{
+          width: tiktok ? 1540 : WIN_W,
+          height: tiktok ? 860 : WIN_H,
+          transform: tiktok ? `scale(${WIN_W / 1540})` : undefined,
+          transformOrigin: '0 0',
+          display: 'flex', flexDirection: 'column',
+          flexShrink: 0,
         }}>
 
           {/* Title bar */}
@@ -634,7 +701,7 @@ export const BrandKitExecution: React.FC = () => {
             <div style={{
               fontFamily: theme.font.family, fontSize: 14,
               fontWeight: theme.font.weightMedium, color: 'rgba(255,255,255,0.85)',
-            }}>Social Campaign – Present intellectual property</div>
+            }}>{s.execEditorTitle}</div>
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, alignItems: 'center' }}>
               {/* Outline */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 7, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}>
@@ -689,7 +756,7 @@ export const BrandKitExecution: React.FC = () => {
 
             {/* Left panel — Brief + Agent */}
             <div style={{
-              width: 390, background: '#161616',
+              width: 390 * scale, background: '#161616',
               borderRight: '1px solid rgba(255,255,255,0.07)',
               display: 'flex', flexDirection: 'column', flexShrink: 0,
             }}>
@@ -716,7 +783,7 @@ export const BrandKitExecution: React.FC = () => {
                   </svg>
                 </div>
                 <div style={{ fontFamily: theme.font.family, fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.7, marginBottom: 14 }}>
-                  A clean social campaign poster about safeguarding intellectual property on Apple platforms, featuring a lock icon, bold headline, and CTA button on a warm off-white background. Minimal, editorial design.
+                  {s.execBriefText}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {/* Copy icon */}
@@ -793,12 +860,12 @@ export const BrandKitExecution: React.FC = () => {
                 {/* Agent message */}
                 <div style={{ flex: 1, padding: '0 20px', overflowY: 'auto' }}>
                   <div style={{ fontFamily: theme.font.family, fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.75, marginBottom: 16 }}>
-                    Here's what I created based on your brief:
+                    {s.execAgentIntro}
                   </div>
                   <ul style={{ margin: 0, paddingLeft: 16, fontFamily: theme.font.family, fontSize: 12, color: 'rgba(255,255,255,0.55)', lineHeight: 1.85, listStyle: 'disc' }}>
-                    <li>3-page social campaign on "Safeguarding Your Innovation on Apple Platforms"</li>
-                    <li>Each page features a headline, supporting copy, a visual lock icon, and a clear CTA — "Explore IP Best Practices"</li>
-                    <li>Consistent 1:1 square format, optimised for Instagram and LinkedIn feeds</li>
+                    <li>{s.execAgentBullet1}</li>
+                    <li>{s.execAgentBullet2}</li>
+                    <li>{s.execAgentBullet3}</li>
                   </ul>
                   {/* Thumbs */}
                   <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
@@ -892,7 +959,7 @@ export const BrandKitExecution: React.FC = () => {
 
             {/* Thumbnail strip */}
             <div style={{
-              width: 160, background: '#121212',
+              width: 160 * scale, background: '#121212',
               borderRight: '1px solid rgba(255,255,255,0.07)',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
               paddingTop: 14, gap: 12, flexShrink: 0, overflowY: 'auto',
@@ -982,6 +1049,7 @@ export const BrandKitExecution: React.FC = () => {
                   PINK={PINK}
                   theme={theme}
                   imageSrc={staticFile('social-posts/preview_1.png')}
+                  size={540 * scale}
                 />
                 {/* Zoom indicator */}
                 <div style={{
@@ -1015,6 +1083,7 @@ export const BrandKitExecution: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
         </div>
       )}
 

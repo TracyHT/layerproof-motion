@@ -9,6 +9,7 @@ interface CursorProps {
   keyframes:        CursorKeyframe[];
   containerWidth?:  number;
   containerHeight?: number;
+  size?:            number;
 }
 
 function fadeInVal(frame: number, from: number, duration: number): number {
@@ -23,6 +24,7 @@ export const Cursor: React.FC<CursorProps> = ({
   keyframes,
   containerWidth  = 1920,
   containerHeight = 1080,
+  size            = 2.8,
 }) => {
   const frame = useCurrentFrame();
   useVideoConfig(); // keep hook call consistent
@@ -145,7 +147,7 @@ export const Cursor: React.FC<CursorProps> = ({
           willChange:      'transform',
         }}
       >
-        <CursorSVG scale={2.8} pressed={pressed} tiltDeg={tiltDeg} />
+        <CursorSVG scale={size} pressed={pressed} tiltDeg={tiltDeg} />
       </div>
     </div>
   );

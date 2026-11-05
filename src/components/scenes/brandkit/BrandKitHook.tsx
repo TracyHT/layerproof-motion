@@ -13,7 +13,21 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { useTheme } from '../../../lib/theme';
+import { useVideoScale } from '../../../lib/scale';
+import { useBrandKitStrings } from './BrandKitLangContext';
 import { Image, PenNib, Aperture, Person, Mountains, Cube, Palette, Shapes } from '@phosphor-icons/react';
+
+// ── Base geometry (at 1920×1080) — scaled inside component ───────────────────
+const CARD_W_BASE     = 680;
+const CARD_GAP_BASE   = 80;
+const CARDS_PER_ROW   = 22;
+const WAVE_AMP_BASE   = 70;
+const WAVE_LEN_BASE   = 3840;
+const WAVE_SPEED      = 0.03;
+const ROW_Y_RATIO     = 200 / 1080; // vertical position as fraction of canvas height
+
+// Portrait: single centered row
+const PORTRAIT_ROW_Y_RATIO = 0.50;
 
 // ── Images ────────────────────────────────────────────────────────────────────
 
@@ -41,33 +55,19 @@ const PostImg: React.FC<{ filename: string; style: React.CSSProperties }> = ({ f
 
 // ── Phase 1: sliding wave ─────────────────────────────────────────────────────
 
-const CARD_W        = 680;
-const CARD_GAP      = 80;
-const STRIDE        = CARD_W + CARD_GAP;
-const CARDS_PER_ROW = 22;
-
-// Dynamic velocity: smooth start, decelerates to a gentle crawl
-const scrollX = (f: number) => {
-  const fast  = 80;    // initial burst speed (px/frame)
-  const floor = 2;     // minimum cruising speed (px/frame)
-  const decay = 0.04;  // lower = fast phase lasts longer
+// Dynamic velocity: smooth start, decelerates to a gentle crawl (at 1920 scale)
+const scrollXBase = (f: number) => {
+  const fast  = 50;    // initial burst speed (px/frame)
+  const floor = 1.5;   // minimum cruising speed (px/frame)
+  const decay = 0.035; // lower = fast phase lasts longer
   return (fast / decay) * (1 - Math.exp(-decay * f)) + floor * f;
 };
 
-const ROW_Y     = 200; // single row — vertically centered-ish
-// Wave: vertical oscillation tied to current X position
-const WAVE_AMP  = 70;   // px vertical peak
-const WAVE_LEN  = 3840; // px per full cycle — only 1 peak visible at a time
-const WAVE_SPEED = 0.03; // rad/frame — wave propagates forward
-
 // ── Timing ────────────────────────────────────────────────────────────────────
-
-const CANVAS_W     = 1920;
-const CANVAS_H     = 1080;
-const TEXT_START      = 30;   // all text appears together with char fade
-const BADGES_START    = 130;  // badges spring out after text is in
-const EXIT_START   = 260;
-const EXIT_END     = 280;
+const TEXT_START      = 60;   // all text appears together with char fade
+const BADGES_START    = 160;  // badges spring out after text is in
+const EXIT_START   = 300;
+const EXIT_END     = 320;
 
 // Strip dims slightly once text overlays it so text stays readable
 const PHASE1_DIM_START = TEXT_START;
@@ -149,12 +149,14 @@ const IconPanel: React.FC<{ size: number }> = ({ size }) => (
 
 // Badges fly from center to fixed corner positions
 // stackImg: optional second image rendered overlapping bottom-right
-const BADGES: { img: string; label: string; desc?: string; pillTop?: boolean; pillRight?: boolean; pillOffsetX?: number; pillOffsetY?: number; appearAt: number; tx: number; ty: number; floatAmp: number; floatPhase: number; tilt: number; size: number; stackImg?: string; whiteBorder?: boolean; noBg?: boolean; iconPanel?: boolean; imagePanel?: boolean }[] = [
-  { img: 'badge-01.png', label: 'Colors',       appearAt: 130, tx:  535, ty: -300, floatAmp: 12, floatPhase: 0,   tilt: -6,  size: 192, pillOffsetX: -50, pillOffsetY: 70 },
-  { img: 'badge-02.png', label: 'Logos',         appearAt: 148, tx:  680, ty:   10, floatAmp:  9, floatPhase: 1.6, tilt:  5,  size: 250, whiteBorder: false },
-  { img: 'badge-05.png', label: 'Typography',    appearAt: 166, tx:  350, ty:  270, floatAmp: 11, floatPhase: 2.3, tilt:  8,  size: 160, whiteBorder: false, pillOffsetY: -20 },
-  { img: 'character.png', label: 'Image assets',  appearAt: 184, tx: -600, ty: -220, floatAmp: 14, floatPhase: 3.1, tilt: -5,  size: 220, pillOffsetX: 30 },
-  { img: 'badge-04.png', label: 'Brand voice',   appearAt: 202, tx: -600, ty:  280, floatAmp: 10, floatPhase: 4.7, tilt: -12, size: 270, whiteBorder: false, noBg: true, pillTop: true, pillRight: true, pillOffsetY: 55, pillOffsetX: 55 },
+const BADGES: { img: string; labelKey: 'colors' | 'logos' | 'typography' | 'imageAssets' | 'brandVoice'; desc?: string; pillTop?: boolean; pillRight?: boolean; pillOffsetX?: number; pillOffsetY?: number; pillFontSize?: number; appearAt: number; tx: number; ty: number; portraitTx?: number; portraitTy?: number; floatAmp: number; floatPhase: number; tilt: number; size: number; stackImg?: string; whiteBorder?: boolean; noBg?: boolean; iconPanel?: boolean; imagePanel?: boolean }[] = [
+  // Landscape positions (tx/ty) are offsets from canvas center at 1920×1080.
+  // Portrait positions (portraitTx/portraitTy) target distinct screen zones to avoid overlap.
+  { img: 'badge-01.png', labelKey: 'colors' as const,       appearAt: 160, tx:  535, ty: -300, portraitTx:  540, portraitTy: -160, floatAmp: 12, floatPhase: 0,   tilt: -6,  size: 230, pillOffsetX: -50, pillOffsetY: 70 },
+  { img: 'badge-02.png', labelKey: 'logos' as const,        appearAt: 178, tx:  680, ty:   10, portraitTx: -580, portraitTy: -140, floatAmp:  9, floatPhase: 1.6, tilt:  5,  size: 250, whiteBorder: false },
+  { img: 'badge-05.png', labelKey: 'typography' as const,   appearAt: 196, tx:  350, ty:  270, portraitTx:  480, portraitTy:  150, floatAmp: 11, floatPhase: 2.3, tilt:  8,  size: 160, whiteBorder: false, pillOffsetY: -20, pillFontSize: 18 },
+  { img: 'character.png', labelKey: 'imageAssets' as const, appearAt: 229, tx: -600, ty: -220, portraitTx: -400, portraitTy: -260, floatAmp: 14, floatPhase: 3.1, tilt: -5,  size: 190, pillOffsetX: 30, pillFontSize: 18 },
+  { img: 'badge-04.png', labelKey: 'brandVoice' as const,  appearAt: 262, tx: -600, ty:  280, portraitTx: -450, portraitTy:  160, floatAmp: 10, floatPhase: 4.7, tilt: -12, size: 270, whiteBorder: false, noBg: true, pillTop: true, pillRight: true, pillOffsetY: 55, pillOffsetX: 55 },
 ];
 
 // ── Image Panel ──────────────────────────────────────────────────────────────
@@ -191,9 +193,22 @@ const ImagePanel: React.FC<{ size: number }> = ({ size }) => (
 export const BrandKitHook: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const { w, h, scale, isPortrait } = useVideoScale();
   const theme = useTheme();
+  const s = useBrandKitStrings();
 
-  const sceneOpacity = interpolate(frame, [0, 15, EXIT_START, EXIT_END], [0, 1, 1, 0], {
+  // Scale wave geometry to canvas size
+  // In portrait, cards are slightly wider (fill 1080px better) and rows span the full height
+  const cardW    = isPortrait ? CARD_W_BASE * scale * 1.15 : CARD_W_BASE * scale;
+  const cardGap  = CARD_GAP_BASE * scale;
+  const stride   = cardW + cardGap;
+  const waveAmp  = WAVE_AMP_BASE * scale;
+  const waveLen  = WAVE_LEN_BASE * scale;
+  const scrollX  = (f: number) => scrollXBase(f) * scale;
+  // Portrait: single row centered at 50% height; landscape: row near top
+  const rowYs = [h * (isPortrait ? PORTRAIT_ROW_Y_RATIO : ROW_Y_RATIO) - (isPortrait ? 100 * scale : 0)];
+
+  const sceneOpacity = interpolate(frame, [0, EXIT_START, EXIT_END], [1, 1, 0], {
     extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
 
@@ -214,24 +229,40 @@ export const BrandKitHook: React.FC = () => {
     const localF      = Math.max(0, frame - b.appearAt);
     const entrySpring = spring({ frame: localF, fps, config: { stiffness: 75, damping: 14 } });
     const opacity     = interpolate(localF, [0, 10], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
-    // Spring from center (0,0) to target corner
-    const x = b.tx * entrySpring + Math.sin((frame / 80) * Math.PI * 2 + b.floatPhase) * b.floatAmp;
-    const y = b.ty * entrySpring + Math.cos((frame / 80) * Math.PI * 2 + b.floatPhase) * b.floatAmp;
-    return { opacity, x, y, rotate: b.tilt, size: b.size, label: b.label, desc: b.desc, pillTop: b.pillTop, stackImg: b.stackImg };
+    const floatAmpScaled = b.floatAmp * scale;
+    // Badge positions are canvas-relative offsets from center — scale by canvas size, not element scale.
+    // In portrait, use per-badge portrait overrides to spread badges to distinct screen zones.
+    const effectiveTx = isPortrait && b.portraitTx !== undefined ? b.portraitTx : b.tx;
+    const effectiveTy = isPortrait && b.portraitTy !== undefined ? b.portraitTy : b.ty;
+    const scaledTx = effectiveTx * (w / 1920);
+    const scaledTy = effectiveTy * (h / 1080);
+    const x = scaledTx * entrySpring + Math.sin((frame / 80) * Math.PI * 2 + b.floatPhase) * floatAmpScaled;
+    const y = scaledTy * entrySpring + Math.cos((frame / 80) * Math.PI * 2 + b.floatPhase) * floatAmpScaled;
+    // Scale badges 25% smaller in portrait so they don't crowd the canvas
+    const badgeSize = b.size * (isPortrait ? 0.75 : 1.0) * scale;
+    const labelMap: Record<string, string> = {
+      colors: s.hookBadge_colors,
+      logos: s.hookBadge_logos,
+      typography: s.hookBadge_typography,
+      imageAssets: s.hookBadge_imageAssets,
+      brandVoice: s.hookBadge_brandVoice,
+    };
+    return { opacity, x, y, rotate: b.tilt, size: badgeSize, label: labelMap[b.labelKey] ?? b.labelKey, desc: b.desc, pillTop: b.pillTop, stackImg: b.stackImg, pillFontSize: b.pillFontSize ?? 26 };
   });
 
   return (
     <AbsoluteFill style={{ background: '#2a2a2a', opacity: sceneOpacity, overflow: 'hidden' }}>
 
-      {/* ── Phase 1: single sliding wave row ── */}
+      {/* ── Phase 1: single sliding wave row (centered vertically in portrait) ── */}
       <div style={{ position: 'absolute', inset: 0, opacity: stripOpacity }}>
         {Array.from({ length: CARDS_PER_ROW }, (_, col) => {
-          const startX = (col - 1) * STRIDE;
+          const rowY  = rowYs[0];
+          const startX = (col - 1) * stride;
           const cardX  = startX - scrollX(frame);
-          const waveY  = WAVE_AMP * Math.sin(
-            (cardX / WAVE_LEN) * Math.PI * 2 + frame * WAVE_SPEED
+          const waveY  = waveAmp * Math.sin(
+            (cardX / waveLen) * Math.PI * 2 + frame * WAVE_SPEED
           );
-          const cardY  = ROW_Y + waveY;
+          const cardY = rowY + waveY - cardW * 0.56 / 2; // vertically center card on rowY
 
           return (
             <div
@@ -240,7 +271,7 @@ export const BrandKitHook: React.FC = () => {
                 position: 'absolute',
                 left: cardX,
                 top:  cardY,
-                width: CARD_W,
+                width: cardW,
                 borderRadius: 18,
                 overflow: 'hidden',
                 border: `1px solid ${theme.colors.glassBorder}`,
@@ -295,59 +326,88 @@ export const BrandKitHook: React.FC = () => {
         justifyContent: 'center',
         gap: 4,
         opacity: exitOp,
+        textAlign: 'center',
+        padding: `0 ${40 * scale}px`,
       }}>
-        {/* Line 1: Visual Assets That Match */}
-        <CharFade
-          text="Visual Assets That Match"
-          frame={frame}
-          startFrame={TEXT_START}
-          charOffset={0}
-          style={{
-            fontFamily: theme.font.family,
-            fontSize: 84,
-            fontWeight: 600,
-            color: theme.colors.white,
-            letterSpacing: -2,
-            lineHeight: 1,
-            whiteSpace: 'nowrap',
-            display: 'block',
-          }}
-        />
-        {/* Line 2: Your Brand Identity */}
-        <div style={{ display: 'flex', gap: 0 }}>
+        {/* Constrain text to canvas width so nothing overflows */}
+        <div style={{ maxWidth: w - 80 * scale, width: '100%' }}>
+          {/* Line 1 */}
           <CharFade
-            text="Your"
+            text={s.hookLine1}
             frame={frame}
             startFrame={TEXT_START}
-            charOffset={'Visual Assets That Match'.length}
+            charOffset={0}
             style={{
               fontFamily: theme.font.family,
-              fontSize: 84,
+              fontSize: (isPortrait ? 88 : 84) * scale,
               fontWeight: 600,
               color: theme.colors.white,
               letterSpacing: -2,
-              lineHeight: 1,
-              whiteSpace: 'nowrap',
+              lineHeight: 1.1,
               display: 'block',
-              marginRight: 20,
+              whiteSpace: 'nowrap',
             }}
           />
-          <CharFade
-            text="Brand Identity"
-            frame={frame}
-            startFrame={TEXT_START}
-            charOffset={'Visual Assets That MatchYour '.length}
-            style={{
-              fontFamily: theme.font.family,
-              fontSize: 84,
-              fontWeight: 600,
-              color: theme.colors.accentPink,
-              letterSpacing: -2,
-              lineHeight: 1,
-              whiteSpace: 'nowrap',
-              display: 'block',
-            }}
-          />
+          {/* Line 1b (optional — portrait break) */}
+          {s.hookLine1b && (
+            <CharFade
+              text={s.hookLine1b}
+              frame={frame}
+              startFrame={TEXT_START}
+              charOffset={s.hookLine1.length}
+              style={{
+                fontFamily: theme.font.family,
+                fontSize: (isPortrait ? 88 : 84) * scale,
+                fontWeight: 600,
+                color: theme.colors.white,
+                letterSpacing: -2,
+                lineHeight: 1.1,
+                display: 'block',
+                whiteSpace: 'nowrap',
+              }}
+            />
+          )}
+          {/* Line 2: "Your" (white) + "Brand Identity" (pink) */}
+          {(() => {
+            const line1bLen = s.hookLine1b?.length ?? 0;
+            return (
+              <div style={{ display: 'flex', flexWrap: 'wrap' as const, justifyContent: 'center', gap: 0, marginTop: 4 }}>
+                <CharFade
+                  text={s.hookLine2a}
+                  frame={frame}
+                  startFrame={TEXT_START}
+                  charOffset={s.hookLine1.length + line1bLen}
+                  style={{
+                    fontFamily: theme.font.family,
+                    fontSize: (isPortrait ? 88 : 84) * scale,
+                    fontWeight: 600,
+                    color: theme.colors.white,
+                    letterSpacing: -2,
+                    lineHeight: 1.1,
+                    display: 'block',
+                    marginRight: 20 * scale,
+                    whiteSpace: 'nowrap',
+                  }}
+                />
+                <CharFade
+                  text={s.hookLine2b}
+                  frame={frame}
+                  startFrame={TEXT_START}
+                  charOffset={s.hookLine1.length + line1bLen + s.hookLine2a.length + 1}
+                  style={{
+                    fontFamily: theme.font.family,
+                    fontSize: (isPortrait ? 88 : 84) * scale,
+                    fontWeight: 600,
+                    color: theme.colors.accentPink,
+                    letterSpacing: -2,
+                    lineHeight: 1.1,
+                    display: 'block',
+                    whiteSpace: 'nowrap',
+                  }}
+                />
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -359,8 +419,8 @@ export const BrandKitHook: React.FC = () => {
             key={b.img}
             style={{
               position: 'absolute',
-              left: CANVAS_W / 2 + anim.x,
-              top:  CANVAS_H / 2 + anim.y,
+              left: w / 2 + anim.x,
+              top:  h / 2 + anim.y,
               transform: `translate(-50%, -50%)`,
               opacity: anim.opacity,
             }}
@@ -424,7 +484,7 @@ export const BrandKitHook: React.FC = () => {
               {!anim.desc && (
                 <span style={{
                   fontFamily: theme.font.family,
-                  fontSize: 26,
+                  fontSize: anim.pillFontSize * scale,
                   fontWeight: 600,
                   color: '#111',
                   letterSpacing: 0.1,
@@ -435,7 +495,7 @@ export const BrandKitHook: React.FC = () => {
               {anim.desc && (
                 <span style={{
                   fontFamily: theme.font.family,
-                  fontSize: 26,
+                  fontSize: anim.pillFontSize * scale,
                   fontWeight: 600,
                   color: '#111',
                   letterSpacing: 0.2,

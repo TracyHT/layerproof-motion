@@ -12,6 +12,9 @@ import {
   useVideoConfig,
 } from 'remotion';
 
+import { useBrandKitStrings } from './BrandKitLangContext';
+import { useVideoScale } from '../../../lib/scale';
+
 const INTER = '"Inter", "SF Pro Display", -apple-system, sans-serif';
 const PINK  = '#FF589B';
 
@@ -22,6 +25,8 @@ const FADE_OUT_END   = 180;
 export const BrandKitCTA: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
+  const s = useBrandKitStrings();
+  const { scale } = useVideoScale();
 
   const sceneOpacity = interpolate(frame, [FADE_OUT_START, FADE_OUT_END], [1, 0], {
     extrapolateLeft: 'clamp',
@@ -30,7 +35,7 @@ export const BrandKitCTA: React.FC = () => {
 
   // Roll up from bottom
   const enterSpring = spring({ frame: Math.max(0, frame - ENTER_START), fps, config: { stiffness: 72, damping: 18 } });
-  const enterY      = interpolate(enterSpring, [0, 1], [120, 0]);
+  const enterY      = interpolate(enterSpring, [0, 1], [120 * scale, 0]);
   const enterOp     = interpolate(frame, [ENTER_START, ENTER_START + 16], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
@@ -76,13 +81,13 @@ export const BrandKitCTA: React.FC = () => {
           <img
             src={staticFile('layerproof-symbol.png')}
             alt=""
-            style={{ width: 76, height: 76, objectFit: 'contain', marginRight: 14, flexShrink: 0 }}
+            style={{ width: 76 * scale, height: 76 * scale, objectFit: 'contain', marginRight: 14 * scale, flexShrink: 0 }}
           />
-          <span style={{ fontFamily: INTER, fontSize: 92, fontWeight: 600, color: '#FFFFFF', letterSpacing: -2, lineHeight: 1 }}>
-            LayerProof
+          <span style={{ fontFamily: INTER, fontSize: 78 * scale, fontWeight: 600, color: '#FFFFFF', letterSpacing: -1, lineHeight: 1 }}>
+            {s.ctaBrand}
           </span>
-          <span style={{ fontFamily: INTER, fontSize: 92, fontWeight: 600, color: PINK, letterSpacing: -2, lineHeight: 1 }}>
-            &nbsp;Brand Kit
+          <span style={{ fontFamily: INTER, fontSize: 78 * scale, fontWeight: 600, color: PINK, letterSpacing: -1, lineHeight: 1, marginLeft: 14 * scale }}>
+            {s.ctaAccent}
           </span>
         </div>
 
